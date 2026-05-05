@@ -1,3 +1,6 @@
 [submodule "homebrew"]
 	path = homebrew
 	url = git@github.com:laishulu/homebrew-homebrew.git
+[submodule "nerd-fonts"]
+	path = nerd-fonts
+	url = git@github.com:cometjc/nerd-fonts.git

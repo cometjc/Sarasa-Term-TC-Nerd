@@ -9,7 +9,7 @@ VERSION=$(echo "$TAG" | sed 's/^v//')
 # Function to download asset and calculate SHA256
 download_and_hash() {
     local asset_name=$1
-    local url="https://github.com/laishulu/Sarasa-Term-SC-Nerd/releases/download/v${VERSION}/${asset_name}"
+    local url="https://github.com/laishulu/Sarasa-Term-TC-Nerd/releases/download/v${VERSION}/${asset_name}"
     local tmp_file="/tmp/${asset_name}"
 
     # Download the asset
@@ -29,12 +29,12 @@ download_and_hash() {
 }
 
 # Calculate SHA256 for each asset
-sha256=$(download_and_hash "SarasaTermSCNerd.ttc.tar.gz")
+sha256=$(download_and_hash "SarasaTermTCNerd.ttc.tar.gz")
 
 # Update the Homebrew formula with actual SHA256 hashes and version
 sed -i.bak \
     -e "s/version \".*\"/version \"$VERSION\"/" \
-    -e "/url.*SarasaTermSCNerd\.ttc\.tar\.gz/{ n; s/sha256 \".*\"/sha256 \"$sha256\"/; }" \
+    -e "/url.*SarasaTermTCNerd\.ttc\.tar\.gz/{ n; s/sha256 \".*\"/sha256 \"$sha256\"/; }" \
     homebrew/Casks/font-sarasa-nerd.rb
 
 # Remove the backup file created by sed

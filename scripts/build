@@ -3,32 +3,47 @@
 root_dir="$(pwd)"
 sarasa_dir="sarasa"
 sarasa_nerd_dir="sarasa-nerd"
+jobs="${JOBS:-1}"
 mkdir -p $sarasa_nerd_dir
-cd $sarasa_nerd_dir
 
-for item in ../"$sarasa_dir"/*; do
+process_font() {
+  local item="$1"
+  echo "processing " "$item"
+  (cd "$sarasa_nerd_dir" && uv run python ../nerd-fonts/font-patcher --quiet --adjust-line-height --complete --careful "$item")
+}
+
+for item in "$sarasa_dir"/*; do
   if [ -f "$item" ]; then
     extension="${item##*.}"
     if [ "$extension" == "ttf" ]; then
-      echo "processing " "$item"
-      ../font-patcher --quiet --adjust-line-height --complete --careful "$item"
+      if [ "$jobs" -gt 1 ]; then
+        process_font "../$item" &
+        while [ "$(jobs -rp | wc -l)" -ge "$jobs" ]; do
+          wait -n
+        done
+      else
+        process_font "../$item"
+      fi
     fi
   fi
 done
 
-cd "$root_dir"
+wait
+
 echo "list generated ttf"
 ls $sarasa_nerd_dir/*.ttf
 
 echo "generating ttc from ttf"
-python otf2otc.py -o $sarasa_nerd_dir/SarasaTermSCNerd.ttc $sarasa_nerd_dir/SarasaTermSCNerd-*.ttf
+uv run python otf2otc.py -o $sarasa_nerd_dir/SarasaTermTCNerd.ttc $sarasa_nerd_dir/SarasaTermTCNerd-*.ttf
 cd "$sarasa_nerd_dir"
 echo "creating tarball of ttf files"
-COPYFILE_DISABLE=1 tar -czvf SarasaTermSCNerd.ttf.tar.gz SarasaTermSCNerd-*.ttf
+COPYFILE_DISABLE=1 tar -czvf SarasaTermTCNerd.ttf.tar.gz SarasaTermTCNerd-*.ttf
 echo "creating tarball of ttc files"
-COPYFILE_DISABLE=1 tar -czvf SarasaTermSCNerd.ttc.tar.gz SarasaTermSCNerd.ttc
+COPYFILE_DISABLE=1 tar -czvf SarasaTermTCNerd.ttc.tar.gz SarasaTermTCNerd.ttc
 echo "creating 7zip of ttc files"
-7zr a -mx9 SarasaTermSCNerd.ttc.7z SarasaTermSCNerd.ttc
+rm -f SarasaTermTCNerd.ttc.7z
+7zr a -mx9 -mmt=on SarasaTermTCNerd.ttc.7z SarasaTermTCNerd.ttc
 echo "creating 7zip of ttf files"
-7zr a -mx9 SarasaTermSCNerd.ttf.7z SarasaTermSCNerd-*.ttf
+rm -f SarasaTermTCNerd.ttf.7z
+7zr a -mx9 -mmt=on SarasaTermTCNerd.ttf.7z SarasaTermTCNerd-*.ttf
 cd "$root_dir"
