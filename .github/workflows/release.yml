@@ -5,93 +5,96 @@ on:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   release:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: false
 
-      - name: Install deps
-        run: sudo apt update && sudo apt install -y fontforge python3-fontforge python3-fonttools p7zip jq
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
-      - name: Download Sarasa Gothic
+      - name: Install build dependencies
         run: |
-          wget -q $(curl 'https://api.github.com/repos/be5invis/Sarasa-Gothic/releases' | jq -r '.[0].assets | map(.browser_download_url) | map(select(test("SarasaTermSC-TTF-[0-9.]+\\.7z"))) | .[0]')
-          7zr x Sarasa*.7z
-          mkdir sarasa
-          mv Sarasa*.ttf sarasa
+          sudo apt update
+          sudo apt install -y aria2 curl fontforge jq p7zip-full python3-fontforge
 
-      - name: Download Font Patcher
+      - name: Use HTTPS for public submodules
         run: |
-          wget -q https://github.com/ryanoasis/nerd-fonts/raw/refs/heads/master/FontPatcher.zip
-          unzip FontPatcher.zip
+          git config --global url."https://github.com/".insteadOf git@github.com:
 
-      - name: Copy Scripts
-        run: cp scripts/font-patcher font-patcher && cp scripts/otf2otc.py otf2otc.py
+      - name: Build hinted TC Nerd fonts
+        run: |
+          JOBS="$(nproc)" bash -xeu build-fonts.sh
 
-      - name: Build Nerd Font
-        run: bash -xeu scripts/build
+      - name: Stage hinted release assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          cp \
+            sarasa-nerd/SarasaTermTCNerd.ttf.tar.gz \
+            sarasa-nerd/SarasaTermTCNerd.ttc.tar.gz \
+            sarasa-nerd/SarasaTermTCNerd.ttf.7z \
+            sarasa-nerd/SarasaTermTCNerd.ttc.7z \
+            release-assets/
 
-      - name: Display structure of the directory
-        run: ls -R
+      - name: Build unhinted TC Nerd fonts
+        run: |
+          SARASA_ASSET_PATTERN='SarasaTermTC-TTF-Unhinted-[0-9.]+\.7z' \
+            OUTPUT_SUFFIX='-Unhinted' \
+            JOBS="$(nproc)" \
+            bash -xeu build-fonts.sh
+
+      - name: Stage unhinted release assets
+        run: |
+          set -euo pipefail
+          cp \
+            sarasa-nerd/SarasaTermTCNerd-Unhinted.ttf.tar.gz \
+            sarasa-nerd/SarasaTermTCNerd-Unhinted.ttc.tar.gz \
+            sarasa-nerd/SarasaTermTCNerd-Unhinted.ttf.7z \
+            sarasa-nerd/SarasaTermTCNerd-Unhinted.ttc.7z \
+            release-assets/
+
+      - name: Verify release asset sizes
+        run: |
+          set -euo pipefail
+          min_bytes=$((10 * 1024 * 1024))
+          for file in release-assets/SarasaTermTCNerd*.tar.gz release-assets/SarasaTermTCNerd*.7z; do
+            size="$(stat -c '%s' "$file")"
+            if (( size < min_bytes )); then
+              echo "$file is unexpectedly small: $size bytes" >&2
+              exit 1
+            fi
+          done
+          sha256sum release-assets/* > release-assets/SHA256SUMS
+          ls -lh release-assets
 
       - name: Get version
         id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
-      - name: Create Release
-        id: create_release
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          token: ${{ secrets.RELEASE_TOKEN }}
           name: Release ${{ steps.get_version.outputs.VERSION }}
           tag_name: ${{ steps.get_version.outputs.VERSION }}
           draft: false
           prerelease: false
-
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v2
-        with:
-          token: ${{ secrets.RELEASE_TOKEN }}
+          fail_on_unmatched_files: true
+          overwrite_files: true
           files: |
-            sarasa-nerd/SarasaTermSCNerd.ttf.tar.gz
-            sarasa-nerd/SarasaTermSCNerd.ttc.tar.gz
-            sarasa-nerd/SarasaTermSCNerd.ttf.7z
-            sarasa-nerd/SarasaTermSCNerd.ttc.7z
-
-      - name: Clear files
-        run: |
-          rm -rvf *.7z
-          rm -rvf *.ttf
-          rm -rvf sarasa
-          rm -rvf sarasa-nerd
-
-      - name: Download Sarasa Gothic Unhinted
-        run: |
-          wget -q $(curl 'https://api.github.com/repos/be5invis/Sarasa-Gothic/releases' | jq -r '.[0].assets | map(.browser_download_url) | map(select(test("SarasaTermSC-TTF-Unhinted-[0-9.]+\\.7z"))) | .[0]')
-          7zr x Sarasa*.7z
-          mkdir sarasa
-          mv Sarasa*.ttf sarasa
-
-      - name: Build Nerd Font
-        run: bash -xeu scripts/build
-
-      - name: Rename file
-        run: |
-          cd sarasa-nerd
-          mv SarasaTermSCNerd.ttf.tar.gz SarasaTermSCNerd-Unhinted.ttf.tar.gz
-          mv SarasaTermSCNerd.ttc.tar.gz SarasaTermSCNerd-Unhinted.ttc.tar.gz
-          mv SarasaTermSCNerd.ttf.7z SarasaTermSCNerd-Unhinted.ttf.7z
-          mv SarasaTermSCNerd.ttc.7z SarasaTermSCNerd-Unhinted.ttc.7z
-          cd ..
-
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v2
-        with:
-          token: ${{ secrets.RELEASE_TOKEN }}
-          files: |
-            sarasa-nerd/SarasaTermSCNerd-Unhinted.ttf.tar.gz
-            sarasa-nerd/SarasaTermSCNerd-Unhinted.ttc.tar.gz
-            sarasa-nerd/SarasaTermSCNerd-Unhinted.ttf.7z
-            sarasa-nerd/SarasaTermSCNerd-Unhinted.ttc.7z
+            release-assets/SarasaTermTCNerd.ttf.tar.gz
+            release-assets/SarasaTermTCNerd.ttc.tar.gz
+            release-assets/SarasaTermTCNerd.ttf.7z
+            release-assets/SarasaTermTCNerd.ttc.7z
+            release-assets/SarasaTermTCNerd-Unhinted.ttf.tar.gz
+            release-assets/SarasaTermTCNerd-Unhinted.ttc.tar.gz
+            release-assets/SarasaTermTCNerd-Unhinted.ttf.7z
+            release-assets/SarasaTermTCNerd-Unhinted.ttc.7z
+            release-assets/SHA256SUMS

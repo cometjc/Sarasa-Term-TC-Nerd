@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 UV_PYTHON="${UV_PYTHON:-/usr/bin/python3}"
+SARASA_ASSET_PATTERN="${SARASA_ASSET_PATTERN:-SarasaTermTC-TTF-[0-9.]+\\.7z}"
+OUTPUT_SUFFIX="${OUTPUT_SUFFIX:-}"
 SARASA_API="https://api.github.com/repos/be5invis/Sarasa-Gothic/releases"
 
 require_command() {
@@ -54,9 +56,9 @@ print("uv base imports ok")
 PY
 fi
 
-sarasa_url="$(curl -fsSL "$SARASA_API" | jq -r '.[0].assets | map(.browser_download_url) | map(select(test("SarasaTermTC-TTF-[0-9.]+\\.7z"))) | .[0]')"
+sarasa_url="$(curl -fsSL "$SARASA_API" | jq -r --arg asset_pattern "$SARASA_ASSET_PATTERN" '.[0].assets | map(.browser_download_url) | map(select(test($asset_pattern))) | .[0]')"
 if [[ -z "$sarasa_url" || "$sarasa_url" == "null" ]]; then
-  echo "Could not find SarasaTermTC TTF release asset" >&2
+  echo "Could not find SarasaTermTC release asset matching: $SARASA_ASSET_PATTERN" >&2
   exit 1
 fi
 
@@ -68,6 +70,7 @@ if [[ ! -f "$sarasa_archive" ]] || ! 7zr t "$sarasa_archive" >/dev/null 2>&1; th
 fi
 
 rm -rf sarasa
+rm -f SarasaTermTC-*.ttf
 7zr x -y "$sarasa_archive" >/tmp/sarasa-term-tc-7zr.log
 mkdir -p sarasa
 mv -f SarasaTermTC-*.ttf sarasa/
@@ -81,3 +84,9 @@ cp scripts/otf2otc.py otf2otc.py
 
 rm -rf sarasa-nerd
 bash -xeu scripts/build
+
+if [[ -n "$OUTPUT_SUFFIX" ]]; then
+  for ext in ttf.tar.gz ttc.tar.gz ttf.7z ttc.7z; do
+    mv "sarasa-nerd/SarasaTermTCNerd.$ext" "sarasa-nerd/SarasaTermTCNerd$OUTPUT_SUFFIX.$ext"
+  done
+fi
