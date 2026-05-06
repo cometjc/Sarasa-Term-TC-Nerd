@@ -28,6 +28,7 @@ jobs:
 
       - name: Use HTTPS for public submodules
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global url."https://github.com/".insteadOf git@github.com:
 
       - name: Resolve Sarasa source assets
