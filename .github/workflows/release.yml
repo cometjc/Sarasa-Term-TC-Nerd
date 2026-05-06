@@ -12,6 +12,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     container:
       image: ghcr.io/cometjc/sarasa-term-tc-nerd-ci:ci-20260506
       credentials:
