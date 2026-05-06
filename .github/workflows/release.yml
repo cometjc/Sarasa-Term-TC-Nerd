@@ -7,73 +7,69 @@ on:
 
 permissions:
   contents: write
+  packages: read
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/cometjc/sarasa-term-tc-nerd-ci:ci-20260506
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: false
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Install build dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y aria2 curl fontforge jq p7zip-full python3-fontforge
-
       - name: Use HTTPS for public submodules
         run: |
           git config --global url."https://github.com/".insteadOf git@github.com:
 
+      - name: Resolve Sarasa source assets
+        id: sarasa
+        run: |
+          set -euo pipefail
+          mkdir -p .cache/sarasa-source
+          hinted_key="$(scripts/ops/resolve-sarasa-asset --flavor hinted --output .cache/sarasa-source/hinted.json --field cache_key)"
+          unhinted_key="$(scripts/ops/resolve-sarasa-asset --flavor unhinted --output .cache/sarasa-source/unhinted.json --field cache_key)"
+          echo "cache-key=sarasa-source-${hinted_key}-${unhinted_key}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Sarasa source font cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/sarasa-source
+          key: ${{ steps.sarasa.outputs.cache-key }}
+
       - name: Build hinted TC Nerd fonts
         run: |
-          JOBS="$(nproc)" bash -xeu build-fonts.sh
+          scripts/ops/build-release \
+            --flavor hinted \
+            --metadata .cache/sarasa-source/hinted.json \
+            --release-version "$GITHUB_REF_NAME" \
+            --jobs "$(nproc)"
 
       - name: Stage hinted release assets
         run: |
-          set -euo pipefail
-          mkdir -p release-assets
-          cp \
-            sarasa-nerd/SarasaTermTCNerd.ttf.tar.gz \
-            sarasa-nerd/SarasaTermTCNerd.ttc.tar.gz \
-            sarasa-nerd/SarasaTermTCNerd.ttf.7z \
-            sarasa-nerd/SarasaTermTCNerd.ttc.7z \
-            release-assets/
+          scripts/ops/stage-release-assets --include-weights Regular,Bold
 
       - name: Build unhinted TC Nerd fonts
         run: |
-          SARASA_ASSET_PATTERN='SarasaTermTC-TTF-Unhinted-[0-9.]+\.7z' \
-            OUTPUT_SUFFIX='-Unhinted' \
-            JOBS="$(nproc)" \
-            bash -xeu build-fonts.sh
+          scripts/ops/build-release \
+            --flavor unhinted \
+            --metadata .cache/sarasa-source/unhinted.json \
+            --output-suffix '-Unhinted' \
+            --release-version "$GITHUB_REF_NAME" \
+            --jobs "$(nproc)"
 
       - name: Stage unhinted release assets
         run: |
-          set -euo pipefail
-          cp \
-            sarasa-nerd/SarasaTermTCNerd-Unhinted.ttf.tar.gz \
-            sarasa-nerd/SarasaTermTCNerd-Unhinted.ttc.tar.gz \
-            sarasa-nerd/SarasaTermTCNerd-Unhinted.ttf.7z \
-            sarasa-nerd/SarasaTermTCNerd-Unhinted.ttc.7z \
-            release-assets/
+          scripts/ops/stage-release-assets --suffix '-Unhinted'
 
       - name: Verify release asset sizes
         run: |
-          set -euo pipefail
-          min_bytes=$((10 * 1024 * 1024))
-          for file in release-assets/SarasaTermTCNerd*.tar.gz release-assets/SarasaTermTCNerd*.7z; do
-            size="$(stat -c '%s' "$file")"
-            if (( size < min_bytes )); then
-              echo "$file is unexpectedly small: $size bytes" >&2
-              exit 1
-            fi
-          done
-          sha256sum release-assets/* > release-assets/SHA256SUMS
-          ls -lh release-assets
+          scripts/ops/verify-release-assets release-assets
 
       - name: Get version
         id: get_version
@@ -93,6 +89,8 @@ jobs:
             release-assets/SarasaTermTCNerd.ttc.tar.gz
             release-assets/SarasaTermTCNerd.ttf.7z
             release-assets/SarasaTermTCNerd.ttc.7z
+            release-assets/SarasaTermTCNerd-Regular.ttf
+            release-assets/SarasaTermTCNerd-Bold.ttf
             release-assets/SarasaTermTCNerd-Unhinted.ttf.tar.gz
             release-assets/SarasaTermTCNerd-Unhinted.ttc.tar.gz
             release-assets/SarasaTermTCNerd-Unhinted.ttf.7z

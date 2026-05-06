@@ -33,6 +33,11 @@ wait
 echo "list generated ttf"
 ls $sarasa_nerd_dir/*.ttf
 
+if [ -n "${RELEASE_VERSION:-}" ]; then
+  echo "setting release version strings"
+  uv run python scripts/ops/set-font-version --release-version "$RELEASE_VERSION" $sarasa_nerd_dir/*.ttf
+fi
+
 echo "generating ttc from ttf"
 uv run python otf2otc.py -o $sarasa_nerd_dir/SarasaTermTCNerd.ttc $sarasa_nerd_dir/SarasaTermTCNerd-*.ttf
 cd "$sarasa_nerd_dir"

@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+flavor="hinted"
+metadata_file=""
+cache_root="${SARASA_SOURCE_CACHE_DIR:-$ROOT_DIR/.cache/sarasa-source}"
+output_dir="$ROOT_DIR/sarasa"
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/ops/fetch-sarasa-source [--flavor hinted|unhinted] [--metadata FILE] [--cache-dir DIR] [--output-dir DIR]
+
+Downloads or restores upstream Sarasa source fonts. The cache stores both the .7z
+archive and extracted SarasaTermTC-*.ttf files.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --flavor)
+      flavor="$2"
+      shift 2
+      ;;
+    --metadata)
+      metadata_file="$2"
+      shift 2
+      ;;
+    --cache-dir)
+      cache_root="$2"
+      shift 2
+      ;;
+    --output-dir)
+      output_dir="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -n "$metadata_file" ]]; then
+  metadata="$(<"$metadata_file")"
+else
+  metadata="$("$ROOT_DIR/scripts/ops/resolve-sarasa-asset" --flavor "$flavor")"
+fi
+
+asset_name="$(jq -r '.name' <<<"$metadata")"
+asset_url="$(jq -r '.url' <<<"$metadata")"
+cache_key="$(jq -r '.cache_key' <<<"$metadata")"
+
+cache_dir="$cache_root/$cache_key"
+archive="$cache_dir/$asset_name"
+mkdir -p "$cache_dir"
+
+download_archive() {
+  rm -f "$archive" "$archive.aria2"
+  if command -v aria2c >/dev/null 2>&1; then
+    aria2c -c -x 8 -s 8 --summary-interval=10 -d "$cache_dir" -o "$asset_name" "$asset_url"
+  else
+    curl -fL -o "$archive" "$asset_url"
+  fi
+}
+
+if [[ ! -f "$archive" ]] || ! 7zr t "$archive" >/dev/null 2>&1; then
+  download_archive
+  7zr t "$archive" >/dev/null
+fi
+
+shopt -s nullglob
+cached_fonts=("$cache_dir"/SarasaTermTC-*.ttf)
+if (( ${#cached_fonts[@]} == 0 )); then
+  tmp_dir="$cache_dir/.extract-tmp"
+  rm -rf "$tmp_dir"
+  mkdir -p "$tmp_dir"
+  7zr x -y "$archive" "-o$tmp_dir" >/tmp/sarasa-term-tc-7zr.log
+  mv -f "$tmp_dir"/SarasaTermTC-*.ttf "$cache_dir"/
+  rm -rf "$tmp_dir"
+fi
+
+cached_fonts=("$cache_dir"/SarasaTermTC-*.ttf)
+if (( ${#cached_fonts[@]} == 0 )); then
+  echo "No SarasaTermTC source TTF files found in cache: $cache_dir" >&2
+  exit 1
+fi
+
+rm -rf "$output_dir"
+mkdir -p "$output_dir"
+cp -f "${cached_fonts[@]}" "$output_dir"/
+
+printf '%s\n' "$metadata" > "$cache_dir/manifest.json"
+echo "Prepared ${#cached_fonts[@]} source fonts in $output_dir"

@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source_dir="$ROOT_DIR/sarasa-nerd"
+output_dir="$ROOT_DIR/release-assets"
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/ops/stage-release-assets [--source-dir DIR] [--output-dir DIR] [--suffix SUFFIX] [--include-weights LIST]
+
+Copies built Sarasa Term TC Nerd release assets into a staging directory.
+LIST is a comma-separated list such as Regular,Bold.
+EOF
+}
+
+suffix=""
+include_weights=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --source-dir)
+      source_dir="$2"
+      shift 2
+      ;;
+    --output-dir)
+      output_dir="$2"
+      shift 2
+      ;;
+    --suffix)
+      suffix="$2"
+      shift 2
+      ;;
+    --include-weights)
+      include_weights="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+mkdir -p "$output_dir"
+for ext in ttf.tar.gz ttc.tar.gz ttf.7z ttc.7z; do
+  asset="$source_dir/SarasaTermTCNerd$suffix.$ext"
+  if [[ ! -f "$asset" ]]; then
+    echo "Missing release asset: $asset" >&2
+    exit 1
+  fi
+  cp -f "$asset" "$output_dir"/
+done
+
+if [[ -n "$include_weights" ]]; then
+  IFS=',' read -r -a weights <<<"$include_weights"
+  for weight in "${weights[@]}"; do
+    weight="${weight//[[:space:]]/}"
+    [[ -n "$weight" ]] || continue
+    asset="$source_dir/SarasaTermTCNerd$suffix-$weight.ttf"
+    if [[ ! -f "$asset" ]]; then
+      echo "Missing release TTF asset: $asset" >&2
+      exit 1
+    fi
+    cp -f "$asset" "$output_dir"/
+  done
+fi

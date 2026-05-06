@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+import argparse
+import re
+from pathlib import Path
+
+from fontTools.ttLib import TTFont
+
+
+def parse_existing_version(value: str) -> tuple[str, str, str]:
+    source_match = re.search(r"(?:Version\s+)?([0-9]+(?:\.[0-9]+)+)", value)
+    hint_match = re.search(r"ttfautohint\s*\(?v?([0-9]+(?:\.[0-9]+)+)\)?", value)
+    nerd_match = re.search(r"Nerds?\s*(?:Fonts?)?\s*v?([0-9]+(?:\.[0-9]+)+)", value)
+
+    source = source_match.group(1) if source_match else "unknown"
+    hint = hint_match.group(1) if hint_match else "unknown"
+    nerd = nerd_match.group(1) if nerd_match else "unknown"
+    return source, hint, nerd
+
+
+def set_font_version(path: Path, release_version: str) -> str:
+    font = TTFont(path)
+    version_records = [name for name in font["name"].names if name.nameID == 5]
+    if not version_records:
+      raise SystemExit(f"{path}: missing nameID 5 version records")
+
+    source, hint, nerd = parse_existing_version(version_records[0].toUnicode())
+    new_version = (
+        f"Version {release_version}; "
+        f"Sarasa {source}; "
+        f"ttfautohint {hint}; "
+        f"Nerd Fonts {nerd}"
+    )
+
+    for name in version_records:
+        name.string = new_version.encode(name.getEncoding())
+
+    font.save(path)
+    return new_version
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Prepends the release version to font nameID 5 and normalizes component version format."
+    )
+    parser.add_argument("--release-version", required=True)
+    parser.add_argument("fonts", nargs="+", type=Path)
+    args = parser.parse_args()
+
+    for font_path in args.fonts:
+        new_version = set_font_version(font_path, args.release_version)
+        print(f"{font_path}: {new_version}")
+
+
+if __name__ == "__main__":
+    main()

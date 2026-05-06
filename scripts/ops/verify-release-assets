@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+asset_dir="${1:-release-assets}"
+min_bytes="${MIN_RELEASE_ASSET_BYTES:-10485760}"
+expected_count="${EXPECTED_RELEASE_ASSET_COUNT:-10}"
+
+if [[ ! -d "$asset_dir" ]]; then
+  echo "Asset directory does not exist: $asset_dir" >&2
+  exit 1
+fi
+
+shopt -s nullglob
+assets=("$asset_dir"/SarasaTermTCNerd*.tar.gz "$asset_dir"/SarasaTermTCNerd*.7z "$asset_dir"/SarasaTermTCNerd*.ttf)
+if (( ${#assets[@]} == 0 )); then
+  echo "No release assets found in: $asset_dir" >&2
+  exit 1
+fi
+
+if (( ${#assets[@]} != expected_count )); then
+  echo "Expected $expected_count release assets, found ${#assets[@]} in: $asset_dir" >&2
+  exit 1
+fi
+
+for file in "${assets[@]}"; do
+  size="$(stat -c '%s' "$file")"
+  if (( size < min_bytes )); then
+    echo "$file is unexpectedly small: $size bytes" >&2
+    exit 1
+  fi
+  printf '%s\t%s\n' "$size" "$file"
+done
+
+sha256sum "$asset_dir"/* > "$asset_dir/SHA256SUMS"
+ls -lh "$asset_dir"

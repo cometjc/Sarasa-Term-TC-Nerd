@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT_DIR"
+
+flavor="${FLAVOR:-hinted}"
+output_suffix="${OUTPUT_SUFFIX:-}"
+jobs="${JOBS:-1}"
+metadata_file=""
+uv_python="${UV_PYTHON:-/usr/bin/python3}"
+release_version="${RELEASE_VERSION:-}"
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/ops/build-release [--flavor hinted|unhinted] [--output-suffix SUFFIX] [--jobs N] [--metadata FILE] [--release-version VERSION]
+
+Builds one Sarasa Term TC Nerd release flavor from cached upstream source fonts.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --flavor)
+      flavor="$2"
+      shift 2
+      ;;
+    --output-suffix)
+      output_suffix="$2"
+      shift 2
+      ;;
+    --jobs)
+      jobs="$2"
+      shift 2
+      ;;
+    --metadata)
+      metadata_file="$2"
+      shift 2
+      ;;
+    --release-version)
+      release_version="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "Missing required command: $1" >&2
+    exit 1
+  }
+}
+
+require_command curl
+require_command jq
+require_command 7zr
+require_command uv
+require_command git
+
+if [[ ! -d nerd-fonts/.git && ! -f nerd-fonts/.git ]]; then
+  git submodule update --init --depth 1 nerd-fonts
+fi
+
+if [[ ! -x .venv/bin/python ]]; then
+  uv venv --python "$uv_python" --system-site-packages
+fi
+uv sync
+
+if ! uv run python - <<'PY'
+import fontforge
+import fontTools
+print("uv base imports ok")
+PY
+then
+  rm -rf .venv
+  uv venv --python "$uv_python" --system-site-packages
+  uv sync
+  uv run python - <<'PY'
+import fontforge
+import fontTools
+print("uv base imports ok")
+PY
+fi
+
+fetch_args=(--flavor "$flavor")
+if [[ -n "$metadata_file" ]]; then
+  fetch_args+=(--metadata "$metadata_file")
+fi
+"$ROOT_DIR/scripts/ops/fetch-sarasa-source" "${fetch_args[@]}"
+
+if ! grep -q 'SarasaTermTCNerd' nerd-fonts/font-patcher; then
+  echo "nerd-fonts/font-patcher is not patched for Sarasa Term TC Nerd" >&2
+  exit 1
+fi
+
+cp scripts/otf2otc.py otf2otc.py
+rm -rf sarasa-nerd
+RELEASE_VERSION="$release_version" JOBS="$jobs" bash -xeu scripts/build
+
+if [[ -n "$output_suffix" ]]; then
+  for ext in ttf.tar.gz ttc.tar.gz ttf.7z ttc.7z; do
+    mv "sarasa-nerd/SarasaTermTCNerd.$ext" "sarasa-nerd/SarasaTermTCNerd$output_suffix.$ext"
+  done
+fi

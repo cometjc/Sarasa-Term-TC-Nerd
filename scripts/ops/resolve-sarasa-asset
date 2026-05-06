@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+flavor="hinted"
+pattern="${SARASA_ASSET_PATTERN:-}"
+output=""
+field=""
+api="${SARASA_API:-https://api.github.com/repos/be5invis/Sarasa-Gothic/releases}"
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/ops/resolve-sarasa-asset [--flavor hinted|unhinted] [--pattern REGEX] [--output FILE] [--field NAME]
+
+Resolves the latest upstream Sarasa Term TC release asset and prints metadata JSON.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --flavor)
+      flavor="$2"
+      shift 2
+      ;;
+    --pattern)
+      pattern="$2"
+      shift 2
+      ;;
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --field)
+      field="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "$pattern" ]]; then
+  case "$flavor" in
+    hinted)
+      pattern='SarasaTermTC-TTF-[0-9.]+\.7z'
+      ;;
+    unhinted)
+      pattern='SarasaTermTC-TTF-Unhinted-[0-9.]+\.7z'
+      ;;
+    *)
+      echo "Unsupported flavor: $flavor" >&2
+      exit 2
+      ;;
+  esac
+fi
+
+curl_args=(-fsSL)
+if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+  curl_args+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+fi
+
+metadata="$(
+  curl "${curl_args[@]}" "$api" |
+    jq -er --arg pattern "$pattern" --arg flavor "$flavor" '
+      .[0].assets
+      | map(select(.name | test($pattern)))
+      | .[0]
+      | if . == null then empty else
+          {
+            flavor: $flavor,
+            id,
+            name,
+            size,
+            updated_at,
+            digest: (.digest // ""),
+            url: .browser_download_url
+          }
+          | .cache_key = (
+              "sarasa-source-v1-" + $flavor + "-" +
+              (.id | tostring) + "-" +
+              .name + "-" +
+              (.size | tostring) + "-" +
+              (if .digest != "" then .digest else .updated_at end)
+              | gsub("[^A-Za-z0-9._-]"; "_")
+            )
+        end
+    '
+)"
+
+if [[ -z "$metadata" ]]; then
+  echo "Could not find SarasaTermTC release asset matching: $pattern" >&2
+  exit 1
+fi
+
+if [[ -n "$output" ]]; then
+  mkdir -p "$(dirname "$output")"
+  printf '%s\n' "$metadata" > "$output"
+fi
+
+if [[ -n "$field" ]]; then
+  jq -r --arg field "$field" '.[$field]' <<<"$metadata"
+else
+  printf '%s\n' "$metadata"
+fi

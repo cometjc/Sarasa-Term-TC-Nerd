@@ -1,5 +1,7 @@
 SarasaTerm*-TTF-*.7z
 .venv/
+.cache/
 sarasa/
 sarasa-nerd/
+release-assets/
 otf2otc.py
